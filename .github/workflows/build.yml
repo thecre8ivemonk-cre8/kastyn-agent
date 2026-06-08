@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     strategy:
@@ -13,7 +16,7 @@ jobs:
         include:
           - os: ubuntu-latest
             output: kastyn-agent-linux
-          - os: windows-latest
+          - os: windows-2025
             output: kastyn-agent-windows.exe
           - os: macos-latest
             output: kastyn-agent-mac
@@ -42,7 +45,7 @@ jobs:
         run: brew install chromaprint
 
       - name: Install fpcalc (Windows)
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-2025'
         run: |
           curl -L https://github.com/acoustid/chromaprint/releases/download/v1.5.1/chromaprint-fpcalc-1.5.1-windows-x86_64.zip -o fpcalc.zip
           7z x fpcalc.zip -ofpcalc_dir
@@ -50,12 +53,12 @@ jobs:
         shell: cmd
 
       - name: Build with PyInstaller (Linux/Mac)
-        if: matrix.os != 'windows-latest'
+        if: matrix.os != 'windows-2025'
         run: |
           pyinstaller --onefile --name ${{ matrix.output }} agent.py
 
       - name: Build with PyInstaller (Windows)
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-2025'
         run: |
           pyinstaller --onefile --name kastyn-agent-windows agent.py
 

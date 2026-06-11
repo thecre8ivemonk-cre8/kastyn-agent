@@ -1,5 +1,18 @@
 import subprocess
+import sys
+import os
 import mutagen
+
+def get_fpcalc_path():
+    """Find fpcalc binary — handles PyInstaller bundle and normal installs."""
+    if getattr(sys, 'frozen', False):
+        base = sys._MEIPASS
+        exe = 'fpcalc.exe' if sys.platform == 'win32' else 'fpcalc'
+        bundled = os.path.join(base, exe)
+        if os.path.isfile(bundled):
+            return bundled
+    return 'fpcalc'
+
 from typing import Optional
 from rich.console import Console
 
@@ -10,7 +23,7 @@ def get_fingerprint(filepath: str) -> Optional[tuple]:
     try:
         # Use default output (DURATION and FINGERPRINT on separate lines)
         result = subprocess.run(
-            ["fpcalc", filepath],
+            [get_fpcalc_path(), filepath],
             capture_output=True,
             text=True,
             timeout=60

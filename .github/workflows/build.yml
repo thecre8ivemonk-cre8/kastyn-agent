@@ -41,12 +41,15 @@ jobs:
           7z x fpcalc.zip -ofpcalc_dir
           copy fpcalc_dir\chromaprint-fpcalc-1.5.1-windows-x86_64\fpcalc.exe fpcalc.exe
         shell: cmd
-      - name: Build agent (Linux/Mac)
-        if: matrix.os != 'windows-2025'
-        run: pyinstaller --onefile --name ${{ matrix.output }} agent.py
+      - name: Build agent (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: pyinstaller --onefile --add-binary "$(which fpcalc):." --name kastyn-agent-linux agent.py
+      - name: Build agent (macOS)
+        if: matrix.os == 'macos-latest'
+        run: pyinstaller --onefile --add-binary "$(which fpcalc):." --name kastyn-agent-mac agent.py
       - name: Build agent (Windows)
         if: matrix.os == 'windows-2025'
-        run: pyinstaller --onefile --name kastyn-agent-windows agent.py
+        run: pyinstaller --onefile --add-binary "fpcalc.exe;." --name kastyn-agent-windows agent.py
       - name: Upload artifact
         uses: actions/upload-artifact@v4.6.2
         with:

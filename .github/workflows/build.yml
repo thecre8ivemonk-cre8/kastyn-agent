@@ -1,16 +1,13 @@
 name: Build Kastyn Agent
-
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
-
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
-  build:
+  build-agent:
     strategy:
       matrix:
         include:
@@ -20,30 +17,23 @@ jobs:
             output: kastyn-agent-windows.exe
           - os: macos-latest
             output: kastyn-agent-mac
-
     runs-on: ${{ matrix.os }}
-
     steps:
       - uses: actions/checkout@v4.2.2
-
       - name: Set up Python
         uses: actions/setup-python@v5.6.0
         with:
           python-version: '3.11'
-
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
           pip install pyinstaller
-
       - name: Install fpcalc (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get install -y libchromaprint-tools
-
       - name: Install fpcalc (macOS)
         if: matrix.os == 'macos-latest'
         run: brew install chromaprint
-
       - name: Install fpcalc (Windows)
         if: matrix.os == 'windows-2025'
         run: |
@@ -51,17 +41,48 @@ jobs:
           7z x fpcalc.zip -ofpcalc_dir
           copy fpcalc_dir\chromaprint-fpcalc-1.5.1-windows-x86_64\fpcalc.exe fpcalc.exe
         shell: cmd
+      - name: Build agent (Linux/Mac)
+        if: matrix.os != 'windows-2025'
+        run: pyinstaller --onefile --name ${{ matrix.output }} agent.py
+      - name: Build agent (Windows)
+        if: matrix.os == 'windows-2025'
+        run: pyinstaller --onefile --name kastyn-agent-windows agent.py
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ matrix.output }}
+          path: dist/${{ matrix.output }}
 
-      - name: Build with PyInstaller (Linux/Mac)
+  build-gui:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            output: kastyn-gui-linux
+          - os: windows-2025
+            output: kastyn-gui-windows.exe
+          - os: macos-latest
+            output: kastyn-gui-mac
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Set up Python
+        uses: actions/setup-python@v5.6.0
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install pyinstaller
+      - name: Install Tkinter (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get install -y python3-tk
+      - name: Build GUI (Linux/Mac)
         if: matrix.os != 'windows-2025'
         run: |
-          pyinstaller --onefile --name ${{ matrix.output }} agent.py
-
-      - name: Build with PyInstaller (Windows)
+          pyinstaller --onefile --windowed --name ${{ matrix.output }} kastyn-gui.py
+      - name: Build GUI (Windows)
         if: matrix.os == 'windows-2025'
         run: |
-          pyinstaller --onefile --name kastyn-agent-windows agent.py
-
+          pyinstaller --onefile --windowed --name kastyn-gui-windows kastyn-gui.py
       - name: Upload artifact
         uses: actions/upload-artifact@v4.6.2
         with:
@@ -69,16 +90,14 @@ jobs:
           path: dist/${{ matrix.output }}
 
   release:
-    needs: build
+    needs: [build-agent, build-gui]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
-
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4.3.0
-
       - name: Create Release
         uses: softprops/action-gh-release@v2.2.2
         with:
@@ -86,3 +105,6 @@ jobs:
             kastyn-agent-linux/kastyn-agent-linux
             kastyn-agent-windows.exe/kastyn-agent-windows.exe
             kastyn-agent-mac/kastyn-agent-mac
+            kastyn-gui-linux/kastyn-gui-linux
+            kastyn-gui-windows.exe/kastyn-gui-windows.exe
+            kastyn-gui-mac/kastyn-gui-mac

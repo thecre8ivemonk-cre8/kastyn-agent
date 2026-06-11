@@ -71,18 +71,19 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: pip install pyinstaller
+        run: pip install pyinstaller pillow
       - name: Install Tkinter (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get install -y python3-tk
-      - name: Build GUI (Linux/Mac)
-        if: matrix.os != 'windows-2025'
-        run: |
-          pyinstaller --onefile --windowed --name ${{ matrix.output }} kastyn-gui.py
+      - name: Build GUI (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: pyinstaller --onefile --windowed --name kastyn-gui-linux kastyn-gui.py
+      - name: Build GUI (macOS)
+        if: matrix.os == 'macos-latest'
+        run: pyinstaller --onefile --windowed --icon kastyn.ico --name kastyn-gui-mac kastyn-gui.py
       - name: Build GUI (Windows)
         if: matrix.os == 'windows-2025'
-        run: |
-          pyinstaller --onefile --windowed --name kastyn-gui-windows kastyn-gui.py
+        run: pyinstaller --onefile --windowed --icon kastyn.ico --name kastyn-gui-windows kastyn-gui.py
       - name: Upload artifact
         uses: actions/upload-artifact@v4.6.2
         with:

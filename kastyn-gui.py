@@ -1,12 +1,33 @@
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import filedialog, messagebox
 import subprocess
 import threading
 import os
 import json
+import sys
+import platform
+import urllib.request
 
 CONFIG_FILE = os.path.expanduser("~/.kastyn_gui.json")
-AGENT_NAME = "kastyn-agent-linux"
+
+AGENT_URLS = {
+    "Windows": "https://github.com/thecre8ivemonk-cre8/kastyn-agent/releases/latest/download/kastyn-agent-windows.exe",
+    "Darwin":  "https://github.com/thecre8ivemonk-cre8/kastyn-agent/releases/latest/download/kastyn-agent-mac",
+    "Linux":   "https://github.com/thecre8ivemonk-cre8/kastyn-agent/releases/latest/download/kastyn-agent-linux",
+}
+
+AGENT_NAMES = {
+    "Windows": "kastyn-agent-windows.exe",
+    "Darwin":  "kastyn-agent-mac",
+    "Linux":   "kastyn-agent-linux",
+}
+
+def get_platform():
+    return platform.system()
+
+def get_agent_default_path():
+    script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+    return os.path.join(script_dir, AGENT_NAMES.get(get_platform(), "kastyn-agent"))
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
@@ -25,7 +46,7 @@ class KastynGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Kastyn Agent")
-        self.root.geometry("700x620")
+        self.root.geometry("700x640")
         self.root.resizable(False, False)
         self.root.configure(bg="#0f0f0f")
 
@@ -34,21 +55,72 @@ class KastynGUI:
         self.running = False
 
         self._build_ui()
-        self._detect_agent()
+        self._check_agent()
 
-    def _detect_agent(self):
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        candidates = [
-            self.cfg.get("agent_path", ""),
-            os.path.join(script_dir, AGENT_NAME),
-            os.path.join(os.path.expanduser("~/Downloads"), AGENT_NAME),
-            os.path.join(os.path.expanduser("~"), AGENT_NAME),
-        ]
-        for p in candidates:
-            if p and os.path.isfile(p):
-                self.agent_path_var.set(p)
-                self.cfg["agent_path"] = p
-                return
+    def _check_agent(self):
+        # Check saved path first
+        saved = self.cfg.get("agent_path", "")
+        if saved and os.path.isfile(saved):
+            self.agent_status_var.set(f"Agent ready: {os.path.basename(saved)}")
+            self._set_agent_status(True)
+            return
+
+        # Check default location (same dir as GUI)
+        default = get_agent_default_path()
+        if os.path.isfile(default):
+            self.cfg["agent_path"] = default
+            self.agent_status_var.set(f"Agent ready: {os.path.basename(default)}")
+            self._set_agent_status(True)
+            return
+
+        # Not found — auto download
+        self.agent_status_var.set("Agent not found — downloading...")
+        self._set_agent_status(None)
+        threading.Thread(target=self._download_agent, args=(default,), daemon=True).start()
+
+    def _download_agent(self, dest_path):
+        plat = get_platform()
+        url = AGENT_URLS.get(plat)
+        if not url:
+            self.root.after(0, self._agent_download_failed, f"Unsupported platform: {plat}")
+            return
+        try:
+            self.root.after(0, self._log, f"Downloading agent from GitHub...\n", "info")
+            urllib.request.urlretrieve(url, dest_path,
+                reporthook=lambda b, bs, ts: self.root.after(0, self._download_progress, b, bs, ts))
+            if plat != "Windows":
+                os.chmod(dest_path, 0o755)
+            self.cfg["agent_path"] = dest_path
+            save_config(self.cfg)
+            self.root.after(0, self._agent_download_done, dest_path)
+        except Exception as e:
+            self.root.after(0, self._agent_download_failed, str(e))
+
+    def _download_progress(self, blocks, block_size, total_size):
+        if total_size > 0:
+            pct = min(100, int(blocks * block_size * 100 / total_size))
+            self.agent_status_var.set(f"Downloading agent... {pct}%")
+
+    def _agent_download_done(self, path):
+        self.agent_status_var.set(f"Agent ready: {os.path.basename(path)}")
+        self._set_agent_status(True)
+        self._log(f"Agent downloaded and ready.\n", "ok")
+
+    def _agent_download_failed(self, err):
+        self.agent_status_var.set("Agent download failed — use Browse to locate it manually")
+        self._set_agent_status(False)
+        self._log(f"Agent download failed: {err}\n", "err")
+
+    def _set_agent_status(self, ok):
+        if ok is True:
+            self.agent_dot.config(fg=self.green)
+            self.agent_status_label.config(fg=self.green)
+        elif ok is False:
+            self.agent_dot.config(fg=self.red)
+            self.agent_status_label.config(fg=self.red)
+        else:
+            self.agent_dot.config(fg=self.amber)
+            self.agent_status_label.config(fg=self.amber)
 
     def _build_ui(self):
         bg = "#0f0f0f"
@@ -77,6 +149,25 @@ class KastynGUI:
 
         tk.Frame(self.root, bg=border, height=1).pack(fill="x", padx=24, pady=16)
 
+        # Agent status bar
+        agent_bar = tk.Frame(self.root, bg=card, highlightbackground=border,
+                             highlightthickness=1)
+        agent_bar.pack(fill="x", padx=24, pady=(0, 12))
+        agent_inner = tk.Frame(agent_bar, bg=card, padx=16, pady=10)
+        agent_inner.pack(fill="x")
+
+        self.agent_dot = tk.Label(agent_inner, text="●", font=("Inter", 13),
+                                  fg=amber, bg=card)
+        self.agent_dot.pack(side="left", padx=(0, 8))
+        self.agent_status_var = tk.StringVar(value="Checking for agent...")
+        self.agent_status_label = tk.Label(agent_inner, textvariable=self.agent_status_var,
+                                           font=("Inter", 12), fg=amber, bg=card)
+        self.agent_status_label.pack(side="left")
+        tk.Button(agent_inner, text="Browse", font=("Inter", 11),
+                  fg=amber, bg=card, activebackground=card,
+                  activeforeground=amber, relief="flat", bd=0,
+                  cursor="hand2", command=self._browse_agent).pack(side="right")
+
         # Config card
         cfg_frame = tk.Frame(self.root, bg=card, highlightbackground=border,
                              highlightthickness=1)
@@ -85,24 +176,19 @@ class KastynGUI:
         inner.pack(fill="x")
         inner.columnconfigure(1, weight=1)
 
-        # Agent binary
-        self._make_row(inner, card, border, amber, muted, text,
-                       "Agent binary", "agent_path_var", self._browse_agent, 0, secret=False)
-        tk.Frame(inner, bg=border, height=1).grid(row=1, column=0, columnspan=3, sticky="ew", pady=8)
-
         # API token
         self._make_row(inner, card, border, amber, muted, text,
-                       "API key", "api_token_var", None, 2, secret=True)
-        tk.Frame(inner, bg=border, height=1).grid(row=3, column=0, columnspan=3, sticky="ew", pady=8)
+                       "API key", "api_token_var", None, 0, secret=True)
+        tk.Frame(inner, bg=border, height=1).grid(row=1, column=0, columnspan=3, sticky="ew", pady=8)
 
         # Station ID
         self._make_row(inner, card, border, amber, muted, text,
-                       "Station ID", "station_id_var", None, 4, secret=False)
-        tk.Frame(inner, bg=border, height=1).grid(row=5, column=0, columnspan=3, sticky="ew", pady=8)
+                       "Station ID", "station_id_var", None, 2, secret=False)
+        tk.Frame(inner, bg=border, height=1).grid(row=3, column=0, columnspan=3, sticky="ew", pady=8)
 
         # Music folder
         self._make_row(inner, card, border, amber, muted, text,
-                       "Music folder", "music_path_var", self._browse_folder, 6, secret=False)
+                       "Music folder", "music_path_var", self._browse_folder, 4, secret=False)
 
         # Pre-fill
         self.api_token_var.set(self.cfg.get("api_token", ""))
@@ -121,16 +207,13 @@ class KastynGUI:
                            selectcolor=bg, activebackground=bg,
                            activeforeground=amber, highlightthickness=0, bd=0,
                            command=self._on_mode_change).pack(side="left", padx=(0, 20))
-
         self.writeback_var = tk.BooleanVar(value=False)
         tk.Checkbutton(mode_frame, text="Write corrections back to files",
-                       variable=self.writeback_var,
-                       font=("Inter", 12), fg=muted, bg=bg,
-                       selectcolor=bg, activebackground=bg,
-                       activeforeground=text,
-                       highlightthickness=0).pack(side="left", padx=(20, 0))
+                       variable=self.writeback_var, font=("Inter", 12),
+                       fg=muted, bg=bg, selectcolor=bg, activebackground=bg,
+                       activeforeground=text, highlightthickness=0).pack(side="left", padx=(20, 0))
 
-        # Watch interval (hidden by default)
+        # Watch interval
         self.interval_frame = tk.Frame(self.root, bg=bg)
         tk.Label(self.interval_frame, text="Watch interval (minutes):",
                  font=("Inter", 12), fg=muted, bg=bg).pack(side="left", padx=(0, 8))
@@ -195,7 +278,6 @@ class KastynGUI:
                          show="●" if secret else "")
         entry.grid(row=row, column=1, sticky="ew", padx=(8, 8), pady=4)
         if secret:
-            setattr(self, f"_{var_attr}_entry", entry)
             tk.Button(parent, text="Show", font=("Inter", 11),
                       fg=amber, bg=card, activebackground=card,
                       activeforeground=amber, relief="flat", bd=0,
@@ -215,8 +297,10 @@ class KastynGUI:
     def _browse_agent(self):
         path = filedialog.askopenfilename(title="Select kastyn-agent binary")
         if path:
-            self.agent_path_var.set(path)
             self.cfg["agent_path"] = path
+            save_config(self.cfg)
+            self.agent_status_var.set(f"Agent ready: {os.path.basename(path)}")
+            self._set_agent_status(True)
 
     def _browse_folder(self):
         path = filedialog.askdirectory(title="Select music folder")
@@ -239,21 +323,19 @@ class KastynGUI:
             self._run()
 
     def _validate(self):
-        agent = self.agent_path_var.get().strip()
-        token = self.api_token_var.get().strip()
-        station = self.station_id_var.get().strip()
-        music = self.music_path_var.get().strip()
+        agent = self.cfg.get("agent_path", "")
         if not agent or not os.path.isfile(agent):
-            messagebox.showerror("Missing agent",
-                                 "Can't find the kastyn-agent binary.\nUse Browse to locate it.")
+            messagebox.showerror("Agent not ready",
+                                 "The agent binary is still downloading or not found.\nPlease wait or use Browse to locate it.")
             return False
-        if not token:
+        if not self.api_token_var.get().strip():
             messagebox.showerror("Missing API key", "Enter your API key from the Kastyn dashboard.")
             return False
-        if not station:
+        if not self.station_id_var.get().strip():
             messagebox.showerror("Missing Station ID",
-                                 "Enter your Station ID.\nFind it in the Kastyn dashboard under your station settings.")
+                                 "Enter your Station ID from the Kastyn dashboard.")
             return False
+        music = self.music_path_var.get().strip()
         if not music or not os.path.isdir(music):
             messagebox.showerror("Missing folder", "Select a valid music folder.")
             return False
@@ -271,15 +353,14 @@ class KastynGUI:
         if not self._validate():
             return
 
-        agent = self.agent_path_var.get().strip()
+        agent = self.cfg.get("agent_path")
         token = self.api_token_var.get().strip()
         station = self.station_id_var.get().strip()
         music = self.music_path_var.get().strip()
         mode = self.mode_var.get()
         writeback = self.writeback_var.get()
 
-        self.cfg.update({"api_token": token, "station_id": station,
-                         "music_path": music, "agent_path": agent})
+        self.cfg.update({"api_token": token, "station_id": station, "music_path": music})
         save_config(self.cfg)
 
         agent_dir = os.path.dirname(os.path.abspath(agent))
@@ -295,8 +376,7 @@ class KastynGUI:
             cmd.append("-w")
         if mode == "watch":
             try:
-                mins = int(self.interval_var.get())
-                cmd += ["-i", str(mins)]
+                cmd += ["-i", str(int(self.interval_var.get()))]
             except:
                 pass
 

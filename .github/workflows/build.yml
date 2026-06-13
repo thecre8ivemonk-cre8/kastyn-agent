@@ -73,14 +73,16 @@ jobs:
         uses: actions/setup-python@v5.6.0
         with:
           python-version: '3.11'
-      - name: Install dependencies
-        run: pip install pyinstaller pillow
       - name: Install Tkinter (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get install -y python3-tk
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk
+      - name: Install dependencies
+        run: pip install pyinstaller pillow --force-reinstall --no-cache-dir
       - name: Build GUI (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: pyinstaller --onefile --windowed --name kastyn-gui-linux kastyn-gui.py
+        run: pyinstaller --onefile --windowed --name kastyn-gui-linux --hidden-import=PIL._tkinter_finder kastyn-gui.py
       - name: Build GUI (macOS)
         if: matrix.os == 'macos-latest'
         run: pyinstaller --onefile --windowed --icon kastyn.ico --name kastyn-gui-mac kastyn-gui.py
